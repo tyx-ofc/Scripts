@@ -58,6 +58,103 @@ local KILLAURA_TAG: string = _ENV._KillAura_Tag or `k{math.random(120, 2e4)}t`
 local ServerOwnerId: IntValue = ReplicatedStorage:FindFirstChild("PrivateServerOwnerId")
 local IsPrivateServer: boolean = if ServerOwnerId then ServerOwnerId.Value ~= 0 else true
 
+local function getHookManager()
+	local HookManager = {}
+	
+	local hookedProperties = {}
+	local protectedObjects = {}
+	
+	local originalIndex, originalNamecall
+	local SafeObject = _ENV.rz_obfuscated_safe_object
+	
+	local function generateIndexError(object, index)
+		local objectName = if typeof(object) == "Instance" then originalIndex(object, "ClassName") else tostring(object)
+		return `{ tostring(index) } is not a valid member of { objectName }`
+	end
+	
+	originalIndex = hookmetamethod(game, "__index", function(self, index)
+		if protectedObjects[self] then
+			if index == "Parent" then
+				return originalIndex(self, "Parent")
+			else
+				return originalIndex(SafeObject, index)
+			end
+		end
+		
+		local hookedObject = hookedProperties[self]
+		
+		if hookedObject and hookedObject[index] ~= nil then
+			return hookedObject[index]
+		end
+		
+		local success, result = pcall(originalIndex, self, index)
+		
+		if not success then
+			return error(result, 2)
+		elseif typeof(result) == "Instance" and protectedObjects[result] then
+			return error(generateIndexError(self, index), 2)
+		end
+		
+		return result
+	end)
+	
+	originalNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+		local protectedErrorMessage = protectedObjects[self]
+		if protectedErrorMessage then
+			return originalNamecall(SafeObject, ...)
+		end
+		return originalNamecall(self, ...)
+	end)
+	
+	function HookManager.ProtectObject(object: Instance): (nil)
+		object.Name = SafeObject.Name
+		protectedObjects[object] = true
+	end
+	
+	function HookManager.UnprotectObject(object: Instance): (nil)
+		protectedObjects[object] = nil
+	end
+	
+	function HookManager.IsProtected(object: Instance): boolean
+		return protectedObjects[object] ~= nil
+	end
+	
+	function HookManager.HookProperty(object: Instance, property: string, value: any?): (nil)
+		if not hookedProperties[object] then
+			hookedProperties[object] = {}
+		end
+		
+		hookedProperties[object][property] = value
+	end
+	
+	function HookManager.UnhookProperty(object: Instance, property: string): (nil)
+		if hookedProperties[object] then
+			hookedProperties[object][property] = nil
+			
+			if next(hookedProperties[object]) == nil then
+				hookedProperties[object] = nil
+			end
+		end
+	end
+	
+	function HookManager.Clear()
+		table.clear(protectedObjects)
+		table.clear(hookedProperties)
+	end
+	
+	HookManager.OriginalIndex = originalIndex
+	HookManager.OriginalNamecall = originalNamecall
+	
+	return HookManager
+end
+
+if not _ENV.rz_hook_manager then
+	_ENV.rz_hook_manager = getHookManager()
+end
+
+local HookManager = _ENV.rz_hook_manager
+HookManager.Clear()
+
 local WaitSeconds = nil;
 
 local HIDDEN_SETTINGS: { [string]: any } = {
@@ -282,6 +379,8 @@ local Signal = {} do
 end
 
 local Module = {} do
+	Module.HookManager = HookManager
+	
 	local Cached = {
 		Closest = nil,
 		Equipped = nil,
@@ -629,9 +728,6 @@ local Module = {} do
 		-- Module.Debounce = Debounce
 		Module.IsAlive = IsAlive;
 		Module.FireRemote = FireRemote;
-		
-		local SeaMaxVersion = ({26.61, 26.61, 26.61})[Module.GameData.Sea];
-		Module.SuperFastAttack = Module.GameData.NumberVersion <= SeaMaxVersion;
 	end
 	
 	Module.Signals = {} do
@@ -1417,6 +1513,7 @@ local Module = {} do
 			
 			local CloneAttachment = Attachment:Clone()
 			local AlignPosition = CloneAttachment.AlignPosition
+			HookManager.ProtectObject(CloneAttachment)
 			CloneAttachment.Parent = RootPart
 			
 			while Enemy and Enemy.Parent == Enemies and Enemy:HasTag(BRING_TAG) do
@@ -1435,7 +1532,7 @@ local Module = {} do
 			end
 			
 			if Enemy and Enemy:HasTag(BRING_TAG) then Enemy:RemoveTag(BRING_TAG) end
-			if CloneAttachment then CloneAttachment:Destroy() end
+			if CloneAttachment then HookManager.UnprotectObject(CloneAttachment) CloneAttachment:Destroy() end
 		end
 		
 		local function KillAura(Enemy)
@@ -1809,30 +1906,6 @@ local Module = {} do
 			end
 		end
 		
-		function FastAttack:SuperFastAttack(EnemyHitBox, BladeHits, Cooldown)
-			if Module.SuperFastAttack and Settings.FastAttack then
-				local Enemy = EnemyHitBox.Parent
-				local Times = if Enemy:GetAttribute("IsBoss") then 25 elseif Enemy:GetAttribute("RaidBoss") then 40 else 6
-				
-				self.Debounce = tick() + 9e9;
-				local Overheat = 0;
-				
-				table.insert(BladeHits, { EnemyHitBox.Parent, EnemyHitBox })
-				table.insert(BladeHits, math.random())
-				
-				while Overheat <= 0.4 do
-					for i = 1, Times do
-						RE_RegisterAttack:FireServer(self:GetCombo())
-						HIT_FUNCTION(EnemyHitBox, BladeHits)
-					end
-					Overheat += task.wait(if Times > 10 then 0.07 else 0)
-				end
-				
-				self.Debounce = 0;
-				return true;
-			end
-		end
-		
 		function FastAttack:UseNormalClick(Cooldown: number): (nil)
 			self:UpdateBladeHits()
 			
@@ -1840,10 +1913,8 @@ local Module = {} do
 				local PrimaryRootPart = table.remove(CurrentBladeHits)[2]
 				
 				if SUCCESS_FLAGS and COMBAT_REMOTE_THREAD and HIT_FUNCTION then
-					if not self:SuperFastAttack(PrimaryRootPart, CurrentBladeHits, Cooldown) then
-						RE_RegisterAttack:FireServer(Cooldown)
-						HIT_FUNCTION(PrimaryRootPart, CurrentBladeHits)
-					end
+					RE_RegisterAttack:FireServer(Cooldown)
+					HIT_FUNCTION(PrimaryRootPart, CurrentBladeHits)
 				elseif SUCCESS_FLAGS and not COMBAT_REMOTE_THREAD then
 					RE_RegisterAttack:FireServer(Cooldown)
 					RE_RegisterHit:FireServer(PrimaryRootPart, CurrentBladeHits)
@@ -1968,7 +2039,7 @@ local Module = {} do
 				if Combo >= 4 then Cooldown += 0.05 end;
 				
 				self.Equipped = Equipped;
-				self.Debounce = if Combo >= 4 and ToolTip ~= "Gun" then tick() + 0.05 else tick();
+				self.Debounce = if Combo >= 4 and ToolTip ~= "Gun" then tick() + (Cooldown / 2) else tick();
 				MyRootPartPosition = Character.Humanoid.RootPart.Position;
 				
 				if ToolTip == "Blox Fruit" and not self.NormalClickFruits[Equipped.Name] then
@@ -2014,7 +2085,10 @@ local Module = {} do
 		BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
 		BodyVelocity.P = 1000
 		
+		HookManager.ProtectObject(BodyVelocity)
+		
 		if _ENV.tween_bodyvelocity then
+			HookManager.UnprotectObject(_ENV.tween_bodyvelocity)
 			_ENV.tween_bodyvelocity:Destroy()
 		end
 		
@@ -2024,7 +2098,7 @@ local Module = {} do
 		
 		local BaseParts, CanCollideObjects, CanTouchObjects = {}, {}, {} do
 			local function AddObjectToBaseParts(Object)
-				if Object:IsA("BasePart") and (Object.CanCollide or Object.CanTouch) then
+				if Object ~= BodyVelocity and Object:IsA("BasePart") and (Object.CanCollide or Object.CanTouch) then
 					table.insert(BaseParts, Object)
 					
 					if Object.CanCollide then CanCollideObjects[Object] = true end
@@ -2096,22 +2170,22 @@ local Module = {} do
 			end
 		end
 		
+		local OriginalIndex = HookManager.OriginalIndex
+		
 		local function UpdateVelocityOnStepped(Character)
 			local BasePart = Character:FindFirstChild("UpperTorso")
 			local Humanoid = Character:FindFirstChild("Humanoid")
 			local BodyVelocity = _ENV.tween_bodyvelocity
 			
-			if _ENV.OnFarm and BasePart and Humanoid and Humanoid.Health > 0 then
-				if BodyVelocity.Parent ~= BasePart then
-					BodyVelocity.Parent = BasePart
-				end
-			else
-				if BodyVelocity.Parent then
-					BodyVelocity.Parent = nil
-				end
+			local NewParent = if _ENV.OnFarm and BasePart and Humanoid and Humanoid.Health > 0 then BasePart else nil
+			
+			if OriginalIndex(BodyVelocity, "Parent") ~= NewParent then
+				BodyVelocity.Parent = NewParent
 			end
 			
-			if BodyVelocity.Velocity ~= Vector3.zero and (not Humanoid or not Humanoid.SeatPart or not _ENV.OnFarm) then
+			if OriginalIndex(BodyVelocity, "Velocity") ~= Vector3.zero and (
+				not Humanoid or not Humanoid.SeatPart or not _ENV.OnFarm
+			) then
 				BodyVelocity.Velocity = Vector3.zero
 			end
 		end
@@ -2144,36 +2218,36 @@ local Module = {} do
 				return ClosestEnemie
 			end
 		end
-    
-    local function UpdateClosests()
-      local SmoothUpdateCooldown = if Settings.SmoothMode then 0.5 else 0.25
-      local time = tick()
-      
-      if ClosestEnemie and not ClosestEnemie.Parent then
-      	ClosestEnemie.Parent = nil
-      end
-      
-      if (time - DisableUpdateClosest) <= 2 or (time - UpdateClosestsDebounce) <= SmoothUpdateCooldown then
-        return nil
-      else
-        UpdateClosestsDebounce = time
-      end
-      
-      local MyCharacter = Player.Character
-      local Equipped = MyCharacter and MyCharacter:FindFirstChildOfClass("Tool")
-      
-      if Equipped and Equipped.ToolTip and MyCharacter.Humanoid.RootPart then
-        local ClosestDistance = if Equipped.ToolTip == "Gun" then 180 else 900
-        
-        local MyPosition = MyCharacter.Humanoid.RootPart.Position
-        local _Characters = Characters:GetChildren()
-        local _Enemies = Enemies:GetChildren()
-        
-        for i = 1, #_Characters do
-          local Character = _Characters[i]
-          if Character == MyCharacter or not CheckPlayerAlly(Character) then continue end
-          local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-          local Hitbox = GetRandomHitboxLimb(Character)
+		
+		local function UpdateClosests()
+			local SmoothUpdateCooldown = if Settings.SmoothMode then 0.5 else 0.25
+			local time = tick()
+			
+			if ClosestEnemie and not ClosestEnemie.Parent then
+				ClosestEnemie.Parent = nil
+			end
+			
+			if (time - DisableUpdateClosest) <= 2 or (time - UpdateClosestsDebounce) <= SmoothUpdateCooldown then
+				return nil
+			else
+				UpdateClosestsDebounce = time
+			end
+			
+			local MyCharacter = Player.Character
+			local Equipped = MyCharacter and MyCharacter:FindFirstChildOfClass("Tool")
+			
+			if Equipped and Equipped.ToolTip and MyCharacter.Humanoid.RootPart then
+				local ClosestDistance = if Equipped.ToolTip == "Gun" then 180 else 900
+				
+				local MyPosition = MyCharacter.Humanoid.RootPart.Position
+				local _Characters = Characters:GetChildren()
+				local _Enemies = Enemies:GetChildren()
+				
+				for i = 1, #_Characters do
+					local Character = _Characters[i]
+					if Character == MyCharacter or not CheckPlayerAlly(Character) then continue end
+					local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+					local Hitbox = GetRandomHitboxLimb(Character)
 					
 					if Hitbox and IsAlive(_, Humanoid) and Humanoid.RootPart then
 						local Magnitude = (Humanoid.RootPart.Position - MyPosition).Magnitude
@@ -2181,13 +2255,13 @@ local Module = {} do
 						if Magnitude <= ClosestDistance then
 							ClosestEnemie, ClosestDistance = Hitbox, Magnitude
 						end
-          end
-        end
-        
+					end
+				end
+				
 				for i = 1, (if Settings.NoAimMobs then 0 else #_Enemies) do
-          local Mob = _Enemies[i]
-          local Humanoid = Mob:FindFirstChildOfClass("Humanoid")
-          local Hitbox = GetRandomHitboxLimb(Mob)
+					local Mob = _Enemies[i]
+					local Humanoid = Mob:FindFirstChildOfClass("Humanoid")
+					local Hitbox = GetRandomHitboxLimb(Mob)
 					
 					if Hitbox and IsAlive(_, Humanoid) and Humanoid.RootPart then
 						local Magnitude = (Humanoid.RootPart.Position - MyPosition).Magnitude
@@ -2204,9 +2278,12 @@ local Module = {} do
 			if _ENV.rz_enabled_bypass or not HIDDEN_SETTINGS.WALKSPEED_BYPASS_ENABLED then return end
 			_ENV.rz_enabled_bypass = true
 			
+			local HookProperty = HookManager.HookProperty
+			
 			local old_newindex;
 			old_newindex = hookmetamethod(Player, "__newindex", function(self, index, value)
 				if index == "WalkSpeed" and self.Name == "Humanoid" then
+					HookProperty(self, index, value)
 					return old_newindex(self, "WalkSpeed", _ENV.WalkSpeedBypass or value)
 				else
 					return old_newindex(self, index, value)
@@ -2255,11 +2332,14 @@ local Module = {} do
 				end
 			}
 			
+			local OriginalIndex = HookManager.OriginalIndex
+			local string_lower = string.lower
+			
 			local old_namecall;
 			old_namecall = hookmetamethod(game, "__namecall", function(self, ...)
-				local Event = Events[self.Name]
+				local Event = Events[OriginalIndex(self, "Name")]
 				
-				if Event and string.lower(getnamecallmethod()) == "fireserver" then
+				if Event and string_lower(getnamecallmethod()) == "fireserver" then
 					return old_namecall(self, Event(...))
 				else
 					return old_namecall(self, ...)
