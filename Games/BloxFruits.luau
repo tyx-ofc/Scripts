@@ -65,3 +65,21 @@ CopyLink.Activated:Connect(function()
 		CopyLink.Text = ServerLink
 	end
 end)
+
+local CloseButton = Instance.new("TextButton", Background)
+CloseButton.Size = UDim2.fromScale(0.1, 0.055)
+CloseButton.Position = UDim2.fromScale(0.29, 0.99)
+CloseButton.AnchorPoint = Vector2.new(1, 1)
+CloseButton.Text = "Close"
+CloseButton.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+CloseButton.TextColor3 = Color3.fromRGB(235, 20, 20)
+CloseButton.Font = Enum.Font.FredokaOne
+CloseButton.TextScaled = true
+CloseButton.TextTransparency = 0.6
+
+local Corner = Instance.new("UICorner", CloseButton)
+Corner.CornerRadius = UDim.new(0, 8)
+
+CloseButton.Activated:Connect(function()
+	ScreenGui:Destroy()
+end)
