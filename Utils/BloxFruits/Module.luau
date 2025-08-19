@@ -71,9 +71,6 @@ local function CreateDictionary(array: { string? }, value: any?): { [string]: an
 	return Dictionary
 end
 
--- HookManager: responsável por proteger objetos, manipular propriedades hookadas
--- e gerenciar comportamento de noclip (CanTouch/CanCollide).
-
 local function NewHookManager()
 	local HookManager = {}
 
@@ -1756,6 +1753,9 @@ Module.RunModules = (function()
 	
 	NewModule("FarmQueue", function(Options)
 		NewConnection(ErrorSignal, function(Message)
+			_ENV.loadedFarm = nil
+			_ENV.OnFarm = false
+			
 			return error(Message, 2)
 		end)
 		
