@@ -23,11 +23,11 @@ do
     _ENV.rz_execute_debounce = tick()
 end
 
--- Aqui foi alterado o repositório
-urls.Owner = "https://raw.githubusercontent.com/tyx-ofc/";
-urls.Repository = urls.Owner .. "Scripts/refs/heads/main/";
-urls.Translator = urls.Repository .. "Translator/";
-urls.Utils = urls.Repository .. "Utils/";
+-- 🔹 Alterado para o seu repositório
+urls.Owner = "https://raw.githubusercontent.com/tyx-ofc/"
+urls.Repository = urls.Owner .. "Scripts/refs/heads/main/"
+urls.Translator = urls.Repository .. "Translator/"
+urls.Utils = urls.Repository .. "Utils/"
 
 do
     local executor = syn or fluxus
@@ -69,13 +69,11 @@ do
         error(Text, 2)
     end
     
+    -- 🔹 Corrigido para substituir corretamente {Owner}, {Repository}, etc.
     local function formatUrl(Url)
-        for key, path in urls do
-            if Url:find("{" .. key .. "}") then
-                return Url:gsub("{" .. key .. "}", path)
-            end
+        for key, path in pairs(urls) do
+            Url = Url:gsub("{" .. key .. "}", path)
         end
-        
         return Url
     end
     
