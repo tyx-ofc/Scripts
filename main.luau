@@ -1,7 +1,9 @@
+local _ENV = (getgenv or getrenv or getfenv)()
+
 local Scripts = {
 	{
 		PlacesIds = {2753915549, 4442272183, 7449423635},
-		UrlPath = if getgenv().BETA_VERSION then "BLOX-FRUITS-BETA.lua" else "BloxFruits.luau" 
+		UrlPath = if (BETA_VERSION or _ENV.BETA_VERSION) then "BLOX-FRUITS-BETA.lua" else "BloxFruits.luau" 
 	},
 	{
 		PlacesIds = {10260193230},
@@ -10,8 +12,6 @@ local Scripts = {
 }
 
 local fetcher, urls = {}, {}
-
-local _ENV = (getgenv or getrenv or getfenv)()
 
 do
 	local last_exec = _ENV.rz_execute_debounce
