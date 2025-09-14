@@ -1,7 +1,7 @@
 local Scripts = {
 	{
 		PlacesIds = {2753915549, 4442272183, 7449423635},
-		UrlPath = if BETA_VERSION then "BLOX-FRUITS-BETA.lua" else "BloxFruits.luau" 
+		UrlPath = if getgenv().BETA_VERSION then "BLOX-FRUITS-BETA.lua" else "BloxFruits.luau" 
 	},
 	{
 		PlacesIds = {10260193230},
